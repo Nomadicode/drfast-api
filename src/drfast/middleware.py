@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Request, Response
+from fastapi import FastAPI, Request, Response
 
 
 class BaseMiddleware:
@@ -20,7 +20,7 @@ class BaseMiddleware:
 		return None
 
 
-def install_middleware(app: Any, middleware_classes: list[type[BaseMiddleware]]) -> None:
+def install_middleware(app: FastAPI, middleware_classes: list[type[BaseMiddleware]]) -> None:
 	"""Install one ASGI-compatible pipeline around FastAPI routes.
 
 	Request hooks run in declaration order; response and exception hooks run in
@@ -28,7 +28,7 @@ def install_middleware(app: Any, middleware_classes: list[type[BaseMiddleware]])
 	"""
 	instances = [middleware() for middleware in middleware_classes]
 
-	@app.middleware("http")
+	@app.middleware("http")  # type: ignore[untyped-decorator]
 	async def drfast_middleware(request: Request, call_next: Any) -> Response:
 		try:
 			for middleware in instances:

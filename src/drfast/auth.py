@@ -8,7 +8,7 @@ to FastAPI Users.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, Self, TypeVar
 from uuid import UUID
 
 from fastapi import Depends, Request
@@ -16,12 +16,28 @@ from fastapi_users import BaseUserManager, FastAPIUsers
 from fastapi_users.authentication import AuthenticationBackend, BearerTransport, JWTStrategy
 from fastapi_users.db import BaseUserDatabase
 from fastapi_users.manager import UUIDIDMixin
+from fastapi_users.models import UserProtocol
 from tortoise import fields
-from tortoise.models import Model as TortoiseModel
 
 from drfast.models import Model, TimestampedModel
 
-UserType = TypeVar("UserType", bound=TortoiseModel)
+
+class TortoiseUserProtocol(UserProtocol[UUID], Protocol):
+	"""Structural contract required by the Tortoise FastAPI Users adapter."""
+
+	@classmethod
+	async def get_or_none(cls, **kwargs: Any) -> Self | None: ...
+
+	@classmethod
+	async def create(cls, **kwargs: Any) -> Self: ...
+
+	async def save(self, *, update_fields: list[str]) -> None: ...
+
+	async def delete(self) -> None: ...
+
+
+UserType = TypeVar("UserType", bound=TortoiseUserProtocol)
+AuthUserType = TypeVar("AuthUserType", bound=UserProtocol[UUID])
 
 
 class FastAPIUserModel(Model, TimestampedModel):
@@ -69,20 +85,25 @@ class DRFastUserManager(UUIDIDMixin, BaseUserManager[UserType, UUID], Generic[Us
 	verification_token_secret: str
 
 
-def jwt_authentication(secret: str, lifetime_seconds: int = 3600) -> AuthenticationBackend:
+def jwt_authentication(
+	secret: str,
+	lifetime_seconds: int = 3600,
+) -> AuthenticationBackend[AuthUserType, UUID]:
 	"""Build FastAPI Users' bearer/JWT backend for generated projects."""
 	bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
 
-	def get_strategy() -> JWTStrategy:
+	def get_strategy() -> JWTStrategy[AuthUserType, UUID]:
 		return JWTStrategy(secret=secret, lifetime_seconds=lifetime_seconds)
 
-	return AuthenticationBackend(name="jwt", transport=bearer_transport, get_strategy=get_strategy)
+	return AuthenticationBackend[AuthUserType, UUID](
+		name="jwt", transport=bearer_transport, get_strategy=get_strategy
+	)
 
 
 def build_fastapi_users(
-	get_user_manager: Callable[..., AsyncGenerator[DRFastUserManager[Any], None]],
-	backend: AuthenticationBackend,
-) -> FastAPIUsers[Any, UUID]:
+	get_user_manager: Callable[..., AsyncGenerator[DRFastUserManager[UserType], None]],
+	backend: AuthenticationBackend[UserType, UUID],
+) -> FastAPIUsers[UserType, UUID]:
 	"""Create a FastAPI Users facade from application dependencies."""
 	return FastAPIUsers(get_user_manager, [backend])
 

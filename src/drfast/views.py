@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
-from typing import Any, ClassVar
+from collections.abc import Callable, Sequence
+from typing import Any, ClassVar, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
@@ -130,9 +130,9 @@ class ModelViewSet(APIView):
 		instance = await self.get_object(request, pk)
 		await instance.delete()
 
-	def as_router(self, *, prefix: str, tags: list[str] | None = None) -> APIRouter:
+	def as_router(self, *, prefix: str, tags: Sequence[str] | None = None) -> APIRouter:
 		"""Build conventional collection/detail routes for this viewset."""
-		router = APIRouter(prefix=prefix, tags=tags or [])
+		router = APIRouter(prefix=prefix, tags=[*tags] if tags else [])
 		input_schema = self.serializer_class.input_schema()
 		partial_input_schema = self.serializer_class._schema(for_input=True, partial=True)
 		output_schema = self.serializer_class.output_schema()
@@ -168,7 +168,7 @@ class ModelViewSet(APIView):
 		pk_parameter = inspect.Parameter(
 			"pk", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=UUID
 		)
-		create_view.__signature__ = signature(
+		cast(Any, create_view).__signature__ = signature(
 			request_parameter,
 			inspect.Parameter(
 				"payload",
@@ -177,7 +177,7 @@ class ModelViewSet(APIView):
 				annotation=input_schema,
 			),
 		)
-		update_view.__signature__ = signature(
+		cast(Any, update_view).__signature__ = signature(
 			request_parameter,
 			pk_parameter,
 			inspect.Parameter(
@@ -187,7 +187,7 @@ class ModelViewSet(APIView):
 				annotation=input_schema,
 			),
 		)
-		partial_update_view.__signature__ = signature(
+		cast(Any, partial_update_view).__signature__ = signature(
 			request_parameter,
 			pk_parameter,
 			inspect.Parameter(

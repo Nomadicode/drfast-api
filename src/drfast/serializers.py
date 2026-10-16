@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar, cast
 
 from pydantic import (
 	BaseModel,
@@ -98,7 +98,7 @@ class SerializerMeta(type):
 				declared[key] = value
 				namespace.pop(key)
 		namespace["_declared_fields"] = declared
-		return super().__new__(mcls, name, bases, namespace)
+		return cast("type[Serializer[Any]]", super().__new__(mcls, name, bases, namespace))
 
 
 class Serializer(Generic[ModelType], metaclass=SerializerMeta):
@@ -121,11 +121,12 @@ class Serializer(Generic[ModelType], metaclass=SerializerMeta):
 			if partial and for_input and default is ...:
 				default = None
 			fields[name] = (annotation, default)
-		return create_model(
+		model = create_model(
 			f"{cls.__name__}{'Input' if for_input else 'Output'}",
 			__config__=ConfigDict(from_attributes=True, populate_by_name=True),
-			**fields,
+			**cast(Any, fields),
 		)
+		return cast(type[BaseModel], model)
 
 	@classmethod
 	def input_schema(cls) -> type[BaseModel]:

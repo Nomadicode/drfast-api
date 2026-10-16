@@ -10,6 +10,7 @@ It is pre-1.0 software. The public surface includes serializers, model viewsets,
 uv add drfast-api
 drfast startproject config
 cd config
+uv sync
 drfast migrate
 drfast runserver
 ```
@@ -63,4 +64,18 @@ uv run python -m build
 ```
 
 The CI workflow also runs Bandit and pip-audit. Configure the PyPI trusted publisher for the `pypi` GitHub environment before tagging a release.
+
+## Documentation
+
+The full user guide and API reference live in [`docs/`](docs/index.rst) and are
+published by Read the Docs using [`.readthedocs.yaml`](.readthedocs.yaml).
+Build them locally with the documentation extra:
+
+```bash
+uv sync --extra docs
+uv run sphinx-build -W -b html docs docs/_build/html
+```
+
+The warnings-as-errors flag matches the hosted build, so broken references and
+invalid reStructuredText fail locally too.
 

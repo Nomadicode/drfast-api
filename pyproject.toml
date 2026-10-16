@@ -49,9 +49,9 @@ dev = [
 drfast = "drfast.cli:main"
 
 [project.urls]
-Documentation = "https://github.com/drfast-api/drfast-api#readme"
-Issues = "https://github.com/drfast-api/drfast-api/issues"
-Source = "https://github.com/drfast-api/drfast-api"
+Documentation = "https://drfast-api.readthedocs.io/en/latest/index.html"
+Issues = "https://github.com/Nomadicode/drfast-api/issues"
+Source = "https://github.com/Nomadicode/drfast-api"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/drfast"]

@@ -10,3 +10,4 @@ exclude_patterns: list[str] = []
 
 html_theme = "alabaster"
 autodoc_typehints = "description"
+autodoc_member_order = "bysource"

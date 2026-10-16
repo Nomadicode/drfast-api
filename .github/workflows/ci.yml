@@ -16,11 +16,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
-      - run: uv sync --extra dev
+      - run: uv sync
       - run: uv run ruff check .
       - run: uv run mypy src
       - run: uv run pytest
       - run: uv run bandit -q -r src
-      - run: uv run pip-audit
+      - run: uv run pip-audit --skip-editable
       - run: uv build
 

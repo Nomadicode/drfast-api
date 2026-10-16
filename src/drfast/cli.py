@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
-import subprocess
+import runpy
+import sys
 from getpass import getpass
 from pathlib import Path
 from textwrap import dedent
@@ -238,7 +239,16 @@ def startapp(name: str, project: str = ".") -> None:
 
 
 def _run_tortoise(arguments: list[str]) -> int:
-	return subprocess.run(["tortoise", *arguments], check=False).returncode
+	"""Run Tortoise's supported module CLI without relying on ``PATH``."""
+	original_argv = sys.argv
+	try:
+		sys.argv = ["tortoise", *arguments]
+		runpy.run_module("tortoise", run_name="__main__")
+	except SystemExit as exc:
+		return exc.code if isinstance(exc.code, int) else 1
+	finally:
+		sys.argv = original_argv
+	return 0
 
 
 async def _create_superuser(project: str, email: str) -> None:
@@ -266,6 +276,12 @@ async def _create_superuser(project: str, email: str) -> None:
 
 def _project_name() -> str:
 	return Path.cwd().name.replace("-", "_")
+
+
+def _validate_project_name(project: str) -> str:
+	if not project or not all(part.isidentifier() for part in project.split(".")):
+		raise SystemExit("Project must be a dotted Python module name.")
+	return project
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -306,20 +322,11 @@ def main(argv: list[str] | None = None) -> None:
 		startapp(args.name, args.project)
 		return
 	if args.command == "runserver":
-		project = args.project or _project_name()
-		result = subprocess.run(
-			[
-				"uvicorn",
-				f"{project}.main:app",
-				"--host",
-				args.host,
-				"--port",
-				str(args.port),
-				"--reload",
-			],
-			check=False,
-		)
-		raise SystemExit(result.returncode)
+		project = _validate_project_name(args.project or _project_name())
+		import uvicorn
+
+		uvicorn.run(f"{project}.main:app", host=args.host, port=args.port, reload=True)
+		return
 	if args.command in {
 		"init",
 		"makemigrations",
@@ -331,9 +338,10 @@ def main(argv: list[str] | None = None) -> None:
 	}:
 		raise SystemExit(_run_tortoise([args.command, *args.args]))
 	if args.command == "createsuperuser":
-		asyncio.run(_create_superuser(args.project or _project_name(), args.email))
+		project = _validate_project_name(args.project or _project_name())
+		asyncio.run(_create_superuser(project, args.email))
 		return
-	project = _project_name()
+	project = _validate_project_name(_project_name())
 	if args.command == "check":
 		importlib.import_module(f"{project}.main")
 		print("System check identified no issues.")

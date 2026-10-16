@@ -1,10 +1,12 @@
+import pytest
 from fastapi import FastAPI, Response
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from drfast.middleware import BaseMiddleware, install_middleware
 
 
-def test_middleware_has_stack_order_and_can_short_circuit() -> None:
+@pytest.mark.asyncio
+async def test_middleware_has_stack_order_and_can_short_circuit() -> None:
 	events: list[str] = []
 
 	class First(BaseMiddleware):
@@ -33,7 +35,8 @@ def test_middleware_has_stack_order_and_can_short_circuit() -> None:
 		events.append("endpoint")
 		return {"ok": True}
 
-	response = TestClient(app).get("/")
+	async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+		response = await client.get("/")
 	assert response.status_code == 418
 	assert events == ["first-request", "second-request"]
 

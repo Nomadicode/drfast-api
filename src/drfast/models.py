@@ -9,7 +9,7 @@ from tortoise.models import Model as TortoiseModel
 class Model(TortoiseModel):
 	"""Abstract model with a UUID primary key."""
 
-	id = fields.UUIDField(pk=True)
+	id = fields.UUIDField(primary_key=True)
 
 	class Meta:
 		abstract = True

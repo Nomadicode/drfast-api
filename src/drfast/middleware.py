@@ -28,7 +28,7 @@ def install_middleware(app: FastAPI, middleware_classes: list[type[BaseMiddlewar
 	"""
 	instances = [middleware() for middleware in middleware_classes]
 
-	@app.middleware("http")  # type: ignore[untyped-decorator]
+	@app.middleware("http")
 	async def drfast_middleware(request: Request, call_next: Any) -> Response:
 		try:
 			for middleware in instances:

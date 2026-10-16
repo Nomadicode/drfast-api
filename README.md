@@ -53,9 +53,12 @@ Copy `.env.example` to `.env` in generated projects. `SECRET_KEY` must be change
 ## Development
 
 ```bash
-uv sync --extra dev
+uv sync
 uv run ruff check .
+uv run mypy src
 uv run pytest
+uv run bandit -q -r src
+uv run pip-audit --skip-editable
 uv run python -m build
 ```
 

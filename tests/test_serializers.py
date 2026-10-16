@@ -1,4 +1,5 @@
 import pytest
+
 from drfast.serializers import CharField, IntegerField, Serializer, SerializerValidationError
 
 

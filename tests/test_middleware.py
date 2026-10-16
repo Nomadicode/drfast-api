@@ -1,6 +1,7 @@
-from drfast.middleware import BaseMiddleware, install_middleware
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
+
+from drfast.middleware import BaseMiddleware, install_middleware
 
 
 def test_middleware_has_stack_order_and_can_short_circuit() -> None:

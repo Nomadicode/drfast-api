@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, cast
 
 from fastapi import HTTPException, Request, status
 
@@ -40,9 +41,18 @@ class IsAdminUser(IsAuthenticated):
 		)
 
 
-async def enforce_permissions(request: Request, view: Any, obj: Any | None = None) -> None:
+async def enforce_permissions(
+	request: Request,
+	view: Any,
+	obj: Any | None = None,
+	*,
+	permission_classes: Sequence[type[BasePermission]] | None = None,
+) -> None:
 	"""Raise a uniform HTTP error for failed configured permissions."""
-	for permission_type in getattr(view, "permission_classes", (AllowAny,)):
+	configured_permissions = permission_classes or cast(
+		Sequence[type[BasePermission]], getattr(view, "permission_classes", (AllowAny,))
+	)
+	for permission_type in configured_permissions:
 		permission = permission_type()
 		allowed = (
 			await permission.has_object_permission(request, view, obj)

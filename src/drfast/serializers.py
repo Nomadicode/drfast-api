@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, ClassVar, Generic, TypeVar, cast
+from collections.abc import Collection, Mapping, Sequence
+from typing import Any, ClassVar, Generic, Literal, TypeVar, cast
+from uuid import UUID
 
 from pydantic import (
 	BaseModel,
@@ -78,9 +79,49 @@ class BooleanField(Field):
 
 
 class UUIDField(Field):
-	from uuid import UUID
-
 	python_type = UUID
+
+
+class RelatedField(Field):
+	"""Read-only relationship rendered as primary keys or nested objects."""
+
+	def __init__(
+		self,
+		serializer_class: type[Serializer[Any]] | None = None,
+		*,
+		many: bool = False,
+		representation: Literal["pk", "nested"] = "pk",
+		alias: str | None = None,
+	) -> None:
+		if representation == "nested" and serializer_class is None:
+			raise ValueError("serializer_class is required for nested relationship output.")
+		super().__init__(read_only=True, alias=alias)
+		self.serializer_class = serializer_class
+		self.many = many
+		self.representation = representation
+
+	def pydantic_field(self, *, for_input: bool) -> tuple[Any, Any]:
+		if for_input:
+			return super().pydantic_field(for_input=True)
+		if self.representation == "nested":
+			if self.serializer_class is None:
+				raise RuntimeError("Nested relationship output requires a serializer class.")
+			item_type: Any = self.serializer_class.output_schema()
+		else:
+			item_type = UUID
+		return (list[item_type] if self.many else item_type), PydanticField(default=...)
+
+	def representation_value(self, value: Any) -> Any:
+		if value is None:
+			return None
+		values: Sequence[Any] = value if self.many else (value,)
+		if self.representation == "nested":
+			if self.serializer_class is None:
+				raise RuntimeError("Nested relationship output requires a serializer class.")
+			result = [self.serializer_class().representation(item) for item in values]
+		else:
+			result = [getattr(item, "id", item) for item in values]
+		return result if self.many else result[0]
 
 
 class SerializerMeta(type):
@@ -112,9 +153,17 @@ class Serializer(Generic[ModelType], metaclass=SerializerMeta):
 		self.validated_data: dict[str, Any] = {}
 
 	@classmethod
-	def _schema(cls, *, for_input: bool, partial: bool = False) -> type[BaseModel]:
+	def _schema(
+		cls,
+		*,
+		for_input: bool,
+		partial: bool = False,
+		exclude_fields: Collection[str] = (),
+	) -> type[BaseModel]:
 		fields: dict[str, tuple[Any, Any]] = {}
 		for name, field in cls._declared_fields.items():
+			if name in exclude_fields:
+				continue
 			if (for_input and field.read_only) or (not for_input and field.write_only):
 				continue
 			annotation, default = field.pydantic_field(for_input=for_input)
@@ -129,19 +178,31 @@ class Serializer(Generic[ModelType], metaclass=SerializerMeta):
 		return cast(type[BaseModel], model)
 
 	@classmethod
-	def input_schema(cls) -> type[BaseModel]:
-		return cls._schema(for_input=True)
+	def input_schema(cls, *, exclude_fields: Collection[str] = ()) -> type[BaseModel]:
+		return cls._schema(for_input=True, exclude_fields=exclude_fields)
 
 	@classmethod
 	def output_schema(cls) -> type[BaseModel]:
 		return cls._schema(for_input=False)
 
-	async def is_valid(self, data: Mapping[str, Any]) -> bool:
+	async def is_valid(
+		self,
+		data: Mapping[str, Any],
+		*,
+		exclude_fields: Collection[str] = (),
+		additional_data: Mapping[str, Any] | None = None,
+	) -> bool:
 		try:
-			parsed = self._schema(for_input=True, partial=self.partial).model_validate(data)
+			parsed = self._schema(
+				for_input=True,
+				partial=self.partial,
+				exclude_fields=exclude_fields,
+			).model_validate(data)
 		except ValidationError as exc:
 			raise SerializerValidationError(exc.errors(include_url=False)) from exc
 		values = parsed.model_dump(exclude_unset=self.partial, by_alias=False)
+		if additional_data is not None:
+			values.update(additional_data)
 		for name, value in list(values.items()):
 			validator = getattr(self, f"validate_{name}", None)
 			if validator is not None:
@@ -168,6 +229,25 @@ class Serializer(Generic[ModelType], metaclass=SerializerMeta):
 		return self.instance
 
 	def representation(self, instance: ModelType | Mapping[str, Any]) -> dict[str, Any]:
+		relation_fields = {
+			name: field
+			for name, field in self._declared_fields.items()
+			if isinstance(field, RelatedField)
+		}
+		if relation_fields:
+			values: dict[str, Any] = {}
+			for name, field in self._declared_fields.items():
+				if field.write_only:
+					continue
+				value = (
+					instance.get(name) if isinstance(instance, Mapping) else getattr(instance, name)
+				)
+				values[name] = (
+					field.representation_value(value)
+					if isinstance(field, RelatedField)
+					else value
+				)
+			instance = values
 		data = self.output_schema().model_validate(instance).model_dump(mode="json", by_alias=True)
 		return {name: value for name, value in data.items() if value is not None}
 
@@ -198,10 +278,20 @@ class ModelSerializer(Serializer[ModelType]):
 		return result
 
 	@classmethod
-	def _schema(cls, *, for_input: bool, partial: bool = False) -> type[BaseModel]:
+	def _schema(
+		cls,
+		*,
+		for_input: bool,
+		partial: bool = False,
+		exclude_fields: Collection[str] = (),
+	) -> type[BaseModel]:
 		if not cls._declared_fields:
 			cls._declared_fields = cls._model_fields()
-		return super()._schema(for_input=for_input, partial=partial)
+		return super()._schema(
+			for_input=for_input,
+			partial=partial,
+			exclude_fields=exclude_fields,
+		)
 
 	async def create(self, validated_data: dict[str, Any]) -> ModelType:
 		return await self.model.create(**validated_data)

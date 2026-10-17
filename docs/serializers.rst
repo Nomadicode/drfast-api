@@ -80,3 +80,34 @@ Use ``partial=True`` when constructing a serializer for patch-style updates; a
 ``ModelViewSet`` handles this for its ``PATCH`` route. Avoid accepting fields
 that users should not control, even if a model has them—select explicit fields
 rather than relying on ``"__all__"`` for public APIs.
+
+Read-only relationships
+-----------------------
+
+Use ``RelatedField`` to expose a relationship without making it writable. The
+default representation is the related object's UUID; pass a serializer and set
+``representation="nested"`` to return the complete related representation.
+Set ``many=True`` for a collection.
+
+.. code-block:: python
+
+   from drfast import RelatedField, ModelSerializer
+
+   class MerchantSerializer(ModelSerializer[Merchant]):
+       model = Merchant
+       fields = ("id", "name")
+
+   class LocationSerializer(ModelSerializer[Location]):
+       model = Location
+       fields = ("id", "name", "merchant")
+
+       # {"merchant": "f4f..."}
+       merchant = RelatedField()
+
+       # Or: {"merchant": {"id": "f4f...", "name": "Northwind"}}
+       merchant = RelatedField(MerchantSerializer, representation="nested")
+
+The relation must be loaded before serialization; use Tortoise prefetching when
+listing nested objects to avoid N+1 queries. ``RelatedField`` is output-only in
+this release. Use an explicit ``merchant_id`` field when a create or update
+workflow intentionally accepts a relationship identifier.

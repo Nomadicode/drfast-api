@@ -28,6 +28,9 @@ Serialization
 Views and routing
 -----------------
 
+.. automodule:: drfast.actions
+   :members:
+
 .. automodule:: drfast.views
    :members:
 

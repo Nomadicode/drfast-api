@@ -57,7 +57,11 @@ class ThrottleMiddleware(BaseMiddleware):
 
 
 class VersioningMiddleware(BaseMiddleware):
-	"""Extract and validate an API version into ``request.state.api_version``."""
+	"""Extract and validate an API version into ``request.state.api_version``.
+
+	A simple policy for string versions. For integer versions that select routes, default
+	to the latest and announce deprecations, use ``drfast.versioning`` instead.
+	"""
 
 	source: ClassVar[Literal["header", "query", "path"]] = "header"
 	header_name: ClassVar[str] = "X-API-Version"

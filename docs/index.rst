@@ -18,7 +18,9 @@ need. The API reference documents the public package surface.
    project-layout
    models
    serializers
+   fields-and-files
    views-and-routers
+   versioning-and-errors
    permissions-and-authentication
    middleware
    configuration

@@ -35,6 +35,12 @@ Settings reference
    * - ``cors_origins``
      - ``CORS_ORIGINS``
      - JSON list available to your CORS middleware configuration
+   * - ``encryption_key``
+     - ``ENCRYPTION_KEY``
+     - Fernet key(s) for ``EncryptedCharField``, newest first, comma-separated
+   * - ``storage_backend``
+     - ``STORAGE_BACKEND``
+     - ``filesystem`` or ``s3``; see :doc:`fields-and-files` for the storage settings
 
 For example:
 
@@ -65,6 +71,19 @@ settings. It sets a lifespan that opens and closes Tortoise connections.
 ``create_app`` deliberately does not create schema at startup. Manage schema
 changes through migrations. It also calls ``validate_production()``: when
 ``DEBUG`` is false, the default ``change-me-in-production`` secret is rejected.
+
+``create_app`` registers the settings for fields and storage that read them
+lazily. Pass ``startup_checks`` (async callables) to refuse to start when, for
+example, required configuration rows are missing; they run once the ORM is ready.
+
+Outside FastAPI (background workers, scripts) use
+:func:`drfast.orm.orm_context`, which registers the settings and opens and closes
+Tortoise:
+
+.. code-block:: python
+
+   async with orm_context(settings):
+       await run_worker()
 
 Custom settings
 ---------------

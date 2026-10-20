@@ -52,6 +52,26 @@ The generated collection and detail routes are:
      - ``/articles/{pk}``
      - Delete a record
 
+Scoping rows and server-owned values
+------------------------------------
+
+Override ``get_queryset(request)`` to limit what list, retrieve, update and
+delete can reach; rows outside it are a ``404``, not a ``403``. Override
+``perform_create`` (or ``perform_update`` / ``perform_destroy``) to add values the
+client must not send:
+
+.. code-block:: python
+
+   class AddressViewSet(ModelViewSet):
+       model = Address
+       serializer_class = AddressSerializer
+
+       def get_queryset(self, request):
+           return Address.filter(user_id=request.state.user.id)
+
+       async def perform_create(self, request, serializer):
+           return await serializer.save(user_id=request.state.user.id)
+
 Filtering, ordering, and pagination
 ------------------------------------
 

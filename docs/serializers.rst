@@ -37,9 +37,13 @@ mapping or when the creation workflow needs custom behavior. Declare fields with
 
 Field-specific hooks named ``validate_<field_name>`` and the cross-field
 ``validate`` hook may be synchronous or asynchronous. Raise ``ValueError`` for
-invalid values. Calling ``await serializer.is_valid(payload)`` raises
-``SerializerValidationError`` when Pydantic validation fails; ``ModelViewSet``
-converts that error to a 422 response automatically.
+invalid values; they are reported like Pydantic errors, located at the field.
+Calling ``await serializer.is_valid(payload)`` raises
+``SerializerValidationError`` when validation fails; ``ModelViewSet`` converts
+that error to a 422 response automatically.
+
+``serializer.save(**kwargs)`` adds server-owned values to the validated data
+before ``create`` or ``update``, as in Django REST Framework.
 
 Model serializers
 -----------------
@@ -58,7 +62,18 @@ For ordinary Tortoise persistence, subclass :class:`drfast.ModelSerializer`:
 
 ``ModelSerializer`` provides asynchronous ``create`` and ``update`` methods.
 If no fields are declared, it derives fields from the selected Tortoise model
-fields. Automatic identifier and timestamp fields are read-only.
+fields. Automatic identifier and timestamp fields are read-only, nullable
+columns accept and return ``null``, and decimal columns become ``DecimalField``
+with the column's decimal places.
+
+More field types
+----------------
+
+* ``allow_null=True`` on any field accepts and returns ``None``.
+* ``DecimalField`` renders fixed-point strings (``"6000.00"``), never exponent
+  notation. Pass ``decimal_places`` for a constant number of places.
+* ``FileField`` (alias ``ImageField``) renders a model file field as its URL and
+  is read-only; see :doc:`fields-and-files`.
 
 Input and output control
 ------------------------

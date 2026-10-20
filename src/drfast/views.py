@@ -8,6 +8,7 @@ from typing import Any, ClassVar, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi.routing import APIRoute
 from tortoise.exceptions import DoesNotExist
 from tortoise.models import Model as TortoiseModel
 
@@ -16,6 +17,9 @@ from drfast.filters import FilterSet
 from drfast.pagination import LimitOffsetPagination
 from drfast.permissions import AllowAny, BasePermission, enforce_permissions
 from drfast.serializers import ModelSerializer, SerializerValidationError
+
+# Starlette renamed the 422 constant; the literal works with every supported version.
+HTTP_422_UNPROCESSABLE = 422
 
 
 class APIView:
@@ -51,6 +55,23 @@ class ModelViewSet(APIView):
 	lookup_url_kwarg: ClassVar[str] = "pk"
 	lookup_type: ClassVar[type[Any]] = UUID
 
+	def get_queryset(self, request: Request) -> Any:
+		"""Rows this request may reach; list, retrieve, update and delete all start here.
+
+		Override to scope rows to the requester. Rows outside it are a 404, not a 403.
+		"""
+		return self.model.filter()
+
+	async def perform_create(self, request: Request, serializer: ModelSerializer[Any]) -> Any:
+		"""Save a new instance; override to add server-owned values via ``serializer.save()``."""
+		return await serializer.save()
+
+	async def perform_update(self, request: Request, serializer: ModelSerializer[Any]) -> Any:
+		return await serializer.save()
+
+	async def perform_destroy(self, request: Request, instance: TortoiseModel) -> None:
+		await instance.delete()
+
 	def serializer(
 		self,
 		instance: Any | None = None,
@@ -69,13 +90,13 @@ class ModelViewSet(APIView):
 	) -> TortoiseModel:
 		try:
 			parent_filter = self._parent_filter(parent_field, parent_pk)
-			obj = await self.model.filter(
+			obj = await self.get_queryset(request).filter(
 				**{self.lookup_field: pk, **parent_filter}
 			).get()
 		except DoesNotExist as exc:
 			raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.") from exc
 		await self.check_permissions(request, obj)
-		return obj
+		return cast(TortoiseModel, obj)
 
 	@staticmethod
 	def _parent_filter(parent_field: str | None, parent_pk: UUID | None) -> dict[str, UUID]:
@@ -100,7 +121,9 @@ class ModelViewSet(APIView):
 		parent_pk: UUID | None = None,
 	) -> Any:
 		parent_filter = self._parent_filter(parent_field, parent_pk)
-		queryset = self.model.filter(**parent_filter) if parent_filter else self.model.all()
+		queryset = self.get_queryset(request)
+		if parent_filter:
+			queryset = queryset.filter(**parent_filter)
 		if self.filterset_class is not None:
 			queryset = queryset.filter(**self.filterset_class.filters_from_request(request))
 		ordering = request.query_params.get("ordering")
@@ -177,12 +200,12 @@ class ModelViewSet(APIView):
 				await serializer.is_valid(payload)
 		except SerializerValidationError as exc:
 			raise HTTPException(
-				status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+				status_code=HTTP_422_UNPROCESSABLE,
 				detail=exc.detail,
 			) from exc
 		if parent_filter:
 			serializer.validated_data.update(parent_filter)
-		instance = await serializer.save()
+		instance = await self.perform_create(request, serializer)
 		return serializer.representation(instance)
 
 	async def update(
@@ -211,12 +234,12 @@ class ModelViewSet(APIView):
 				await serializer.is_valid(payload)
 		except SerializerValidationError as exc:
 			raise HTTPException(
-				status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+				status_code=HTTP_422_UNPROCESSABLE,
 				detail=exc.detail,
 			) from exc
 		if parent_filter:
 			serializer.validated_data.update(parent_filter)
-		instance = await serializer.save()
+		instance = await self.perform_update(request, serializer)
 		return serializer.representation(instance)
 
 	async def destroy(
@@ -230,7 +253,7 @@ class ModelViewSet(APIView):
 		instance = await self.get_object(
 			request, pk, parent_field=parent_field, parent_pk=parent_pk
 		)
-		await instance.delete()
+		await self.perform_destroy(request, instance)
 
 	def as_router(
 		self,
@@ -239,8 +262,12 @@ class ModelViewSet(APIView):
 		tags: Sequence[str] | None = None,
 		parent_parameter: str | None = None,
 		parent_field: str | None = None,
+		route_class: type[APIRoute] = APIRoute,
 	) -> APIRouter:
-		"""Build conventional collection/detail routes for this viewset."""
+		"""Build conventional collection/detail routes for this viewset.
+
+		Pass ``route_class=VersionedRoute`` so ``@versions`` on actions is enforced.
+		"""
 		if (parent_parameter is None) != (parent_field is None):
 			raise ValueError("parent_parameter and parent_field must be provided together.")
 		if parent_parameter is not None and f"{{{parent_parameter}}}" not in prefix:
@@ -250,7 +277,7 @@ class ModelViewSet(APIView):
 		if parent_parameter == self.lookup_url_kwarg:
 			raise ValueError("lookup_url_kwarg must differ from parent_parameter.")
 
-		router = APIRouter(prefix=prefix, tags=[*tags] if tags else [])
+		router = APIRouter(prefix=prefix, tags=[*tags] if tags else [], route_class=route_class)
 		parent_input_fields = self._parent_input_fields(parent_field)
 		if parent_input_fields:
 			input_schema = self.serializer_class.input_schema(exclude_fields=parent_input_fields)

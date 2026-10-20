@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
-from typing import Any, ClassVar, Generic, Literal, TypeVar, cast
+from decimal import Decimal
+from typing import Annotated, Any, ClassVar, Generic, Literal, TypeVar, cast
 from uuid import UUID
 
 from pydantic import (
 	BaseModel,
+	BeforeValidator,
 	ConfigDict,
 	EmailStr,
+	PlainSerializer,
 	ValidationError,
 	create_model,
 )
@@ -45,13 +48,18 @@ class Field:
 		default: Any = ...,
 		read_only: bool = False,
 		write_only: bool = False,
+		allow_null: bool = False,
 		alias: str | None = None,
 	) -> None:
 		self.required = required
 		self.default = default
 		self.read_only = read_only
 		self.write_only = write_only
+		self.allow_null = allow_null
 		self.alias = alias
+
+	def annotation(self) -> Any:
+		return self.python_type | None if self.allow_null else self.python_type
 
 	def pydantic_field(self, *, for_input: bool) -> tuple[Any, Any]:
 		if (for_input and self.read_only) or (not for_input and self.write_only):
@@ -59,7 +67,7 @@ class Field:
 		default = self.default
 		if not self.required and default is ...:
 			default = None
-		return self.python_type, PydanticField(default=default, alias=self.alias)
+		return self.annotation(), PydanticField(default=default, alias=self.alias)
 
 
 class CharField(Field):
@@ -80,6 +88,58 @@ class BooleanField(Field):
 
 class UUIDField(Field):
 	python_type = UUID
+
+
+def fixed_point(value: Decimal) -> str:
+	return format(value, "f")
+
+
+class DecimalField(Field):
+	"""Fixed-precision values such as money and coordinates, rendered as strings.
+
+	Output is always fixed-point: Tortoise normalises the decimals it reads, so 6000 would
+	otherwise render as ``"6E+3"``. Pass ``decimal_places`` to render a constant number of
+	places (``"6000.00"``); model serializers take it from the column.
+	"""
+
+	python_type = Annotated[
+		Decimal, PlainSerializer(fixed_point, return_type=str, when_used="json")
+	]
+
+	def __init__(self, *, decimal_places: int | None = None, **kwargs: Any) -> None:
+		super().__init__(**kwargs)
+		self.decimal_places = decimal_places
+
+	def annotation(self) -> Any:
+		if self.decimal_places is None:
+			return super().annotation()
+		quantum = Decimal(1).scaleb(-self.decimal_places)
+
+		def render(value: Decimal) -> str:
+			return fixed_point(value.quantize(quantum))
+
+		annotation: Any = Annotated[
+			Decimal, PlainSerializer(render, return_type=str, when_used="json")
+		]
+		return annotation | None if self.allow_null else annotation
+
+
+def file_url(value: Any) -> Any:
+	url = getattr(value, "url", None)
+	return url if isinstance(url, str) else value
+
+
+class FileField(Field):
+	"""Read-only rendering of a model file field (``drfast.files``) as its URL."""
+
+	python_type = Annotated[str, BeforeValidator(file_url)]
+
+	def __init__(self, **kwargs: Any) -> None:
+		kwargs.setdefault("allow_null", True)
+		super().__init__(read_only=True, **kwargs)
+
+
+ImageField = FileField
 
 
 class RelatedField(Field):
@@ -206,11 +266,22 @@ class Serializer(Generic[ModelType], metaclass=SerializerMeta):
 		for name, value in list(values.items()):
 			validator = getattr(self, f"validate_{name}", None)
 			if validator is not None:
-				result = validator(value)
-				values[name] = await result if hasattr(result, "__await__") else result
-		validated = self.validate(values)
-		self.validated_data = await validated if hasattr(validated, "__await__") else validated
+				values[name] = await self._run_validator(validator, value, location=(name,))
+		self.validated_data = await self._run_validator(self.validate, values, location=())
 		return True
+
+	@staticmethod
+	async def _run_validator(validator: Any, value: Any, *, location: tuple[str, ...]) -> Any:
+		"""Run a sync or async hook, reporting ``ValueError`` in Pydantic's error shape."""
+		try:
+			result = validator(value)
+			return await result if hasattr(result, "__await__") else result
+		except SerializerValidationError:
+			raise
+		except ValueError as exc:
+			raise SerializerValidationError(
+				[{"loc": list(location), "msg": str(exc), "type": "value_error"}]
+			) from exc
 
 	def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
 		return attrs
@@ -221,7 +292,9 @@ class Serializer(Generic[ModelType], metaclass=SerializerMeta):
 	async def update(self, instance: ModelType, validated_data: dict[str, Any]) -> ModelType:
 		raise NotImplementedError("Serializer.update() must be implemented")
 
-	async def save(self) -> ModelType:
+	async def save(self, **kwargs: Any) -> ModelType:
+		"""Create or update; ``kwargs`` add server-owned values, as in DRF's ``save()``."""
+		self.validated_data.update(kwargs)
 		if self.instance is None:
 			self.instance = await self.create(self.validated_data)
 		else:
@@ -248,8 +321,7 @@ class Serializer(Generic[ModelType], metaclass=SerializerMeta):
 					else value
 				)
 			instance = values
-		data = self.output_schema().model_validate(instance).model_dump(mode="json", by_alias=True)
-		return {name: value for name, value in data.items() if value is not None}
+		return self.output_schema().model_validate(instance).model_dump(mode="json", by_alias=True)
 
 
 class ModelSerializer(Serializer[ModelType]):
@@ -270,11 +342,19 @@ class ModelSerializer(Serializer[ModelType]):
 				continue
 			is_automatic = name in {"id", "created_at", "updated_at", "deleted_at"}
 			python_type = getattr(db_field, "field_type", Any)
-			result[name] = Field(
-				required=not getattr(db_field, "null", False),
-				read_only=is_automatic or name in cls.read_only_fields,
-			)
-			result[name].python_type = python_type
+			nullable = bool(getattr(db_field, "null", False))
+			options: dict[str, Any] = {
+				"required": not nullable,
+				"allow_null": nullable,
+				"read_only": is_automatic or name in cls.read_only_fields,
+			}
+			if python_type is Decimal:
+				result[name] = DecimalField(
+					decimal_places=getattr(db_field, "decimal_places", None), **options
+				)
+			else:
+				result[name] = Field(**options)
+				result[name].python_type = python_type
 		return result
 
 	@classmethod

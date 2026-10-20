@@ -43,7 +43,7 @@ AuthUserType = TypeVar("AuthUserType", bound=UserProtocol[UUID])
 class FastAPIUserModel(Model, TimestampedModel):
 	"""Ready-to-use Tortoise user table base with FastAPI Users fields."""
 
-	email = fields.CharField(max_length=320, unique=True, index=True)
+	email = fields.CharField(max_length=320, unique=True, db_index=True)
 	hashed_password = fields.CharField(max_length=1024)
 	is_active = fields.BooleanField(default=True)
 	is_superuser = fields.BooleanField(default=False)
@@ -88,9 +88,11 @@ class DRFastUserManager(UUIDIDMixin, BaseUserManager[UserType, UUID], Generic[Us
 def jwt_authentication(
 	secret: str,
 	lifetime_seconds: int = 3600,
+	*,
+	token_url: str = "auth/login",
 ) -> AuthenticationBackend[AuthUserType, UUID]:
 	"""Build FastAPI Users' bearer/JWT backend for generated projects."""
-	bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
+	bearer_transport = BearerTransport(tokenUrl=token_url)
 
 	def get_strategy() -> JWTStrategy[AuthUserType, UUID]:
 		return JWTStrategy(secret=secret, lifetime_seconds=lifetime_seconds)

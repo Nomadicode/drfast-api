@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "drfast-api"
-version = "0.1.2"
+version = "0.2.0"
 description = "DRF-inspired async APIs for FastAPI and Tortoise ORM"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,13 +32,18 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29,<1"]
+encryption = ["cryptography>=43"]
+images = ["pillow>=11"]
+s3 = ["boto3>=1.35,<2"]
+files = ["drfast-api[images,s3]"]
 docs = ["sphinx>=8,<9"]
 
 [dependency-groups]
 dev = [
+	"drfast-api[encryption,files]",
 	"httpx>=0.27,<1",
 	"pytest>=9.0.3,<10",
-	"pytest-asyncio>=0.23,<1",
+	"pytest-asyncio>=1.2,<2",
 	"ruff>=0.8,<1",
 	"mypy>=1.13,<2",
 	"bandit>=1.7,<2",
@@ -72,4 +77,8 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.11"
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["boto3", "botocore.*"]
+ignore_missing_imports = true
 

@@ -25,6 +25,18 @@ Serialization
 .. automodule:: drfast.serializers
    :members:
 
+Fields, files, and storage
+--------------------------
+
+.. automodule:: drfast.fields
+   :members:
+
+.. automodule:: drfast.files
+   :members:
+
+.. automodule:: drfast.storage
+   :members:
+
 Views and routing
 -----------------
 
@@ -50,6 +62,15 @@ Permissions, filters, pagination, and middleware
    :members:
 
 .. automodule:: drfast.middleware
+   :members:
+
+Versioning and errors
+---------------------
+
+.. automodule:: drfast.versioning
+   :members:
+
+.. automodule:: drfast.exceptions
    :members:
 
 Authentication and commands
